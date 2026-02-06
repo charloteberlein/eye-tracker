@@ -125,6 +125,7 @@ def calibrate(dots) -> None:
                     print(e)
                 curr_dot += 1
             else:
+                mean_pupil_positions.append(pupil_bounds)
                 print(mean_pupil_positions)
         elif processing:
             if pupil_bounds is not None:
