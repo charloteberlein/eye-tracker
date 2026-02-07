@@ -1,17 +1,22 @@
 # created 04.02.2026
+# vision modules
 import cv2
 import mediapipe as mp
 from mediapipe.tasks import python as mpp
 from mediapipe.tasks.python import vision as v
+# calculation modules
 from datetime import datetime
 import numpy as np
 from numpy.typing import NDArray
-import threading
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
+from sklearn.linear_model import LinearRegression
 
 
-## GLOBALS
+# global constants
 VIDEO_FEED = 1 # input camera
 W, H = 3024, 1964 # screen dimensions
+CENTRE = np.array([W//2, H//2])
 # default landmark indices within mesh
 LEFT_EYE_LANDMARKS = (463, 398, 384, 385, 386, 387, 388, 466, 263, 249, 390,
                       373, 374, 380, 381, 382, 362)
@@ -24,13 +29,18 @@ EYE_CORNERS_L, EYE_CORNERS_R = (463, 263), (133, 33) # (inner, outer)
 EYE_APEX_L, EYE_APEX_R, PUPILS = (386, 145), (159, 374), (473, 468)
 LANDMARKS = EYE_CORNERS_L + EYE_CORNERS_R + EYE_APEX_L + EYE_APEX_R + PUPILS
 
+# global variables
 R = None # current face result
-def callback_func(out, im, time) -> None:
-    global R
-    R = out
-pupil_bounds = None # modify after calibration
 processing = False
 
+# helper and callback functions
+def callback_func(out, im, time) -> None: # required for mediapipe landmarker
+    global R
+    R = out
+def pt(p): # coordinate arrays -> tuples
+    return int(p[0]), int(p[1])
+
+# mediapipe facial landmarker options & filepath
 OPTIONS = v.FaceLandmarkerOptions(
         base_options=mpp.BaseOptions(
             model_asset_path="resources/face_landmarker.task"
@@ -41,32 +51,60 @@ OPTIONS = v.FaceLandmarkerOptions(
     )
 
 
-def get_norm_pupil_position(F) -> tuple[tuple[float, float], tuple[float, float]]:
-    # get all coords for both eyes
-    lx = np.array([F[i].x for i in LEFT_EYE_LANDMARKS])
-    ly = np.array([F[i].y for i in LEFT_EYE_LANDMARKS])
-    rx = np.array([F[i].x for i in RIGHT_EYE_LANDMARKS])
-    ry = np.array([F[i].y for i in RIGHT_EYE_LANDMARKS])
+def get_pupil_features(F) -> NDArray[np.float64]:
+    """
+    Returns positions of the eye pupil centres relative to the centre of each
+    eye.
 
-    # normalise pupil coords within bounding box
-    lx_norm = np.clip((F[PUPILS[0]].x-lx.min()) / (lx.max()-lx.min()), 0.0, 1.0)
-    ly_norm = np.clip((F[PUPILS[0]].y-ly.min()) / (ly.max()-ly.min()), 0.0, 1.0)
-    rx_norm = np.clip((F[PUPILS[1]].x-rx.min()) / (rx.max()-rx.min()), 0.0, 1.0)
-    ry_norm = np.clip((F[PUPILS[1]].y-ry.min()) / (ry.max()-ry.min()), 0.0, 1.0)
-    return ((lx_norm, ly_norm), (rx_norm, ry_norm))
+    args:
+        F:          face landmarks array
+
+    returns:
+        lpx, lpy:   left pupil position relative to left eye centre
+        rpx, rpy:   right pupil position relative to right eye centre
+    """
+    # left
+    li, lo = EYE_CORNERS_L # inner & outer
+    lx0, ly0 = F[li].x, F[li].y
+    lx1, ly1 = F[lo].x, F[lo].y
+    lp = F[PUPILS[0]]
+    l_width = np.hypot(lx1-lx0, ly1-ly0) + 1e-6
+
+    lcx, lcy = (lx0+lx1)/2, (ly0+ly1)/2 # find left eye centre
+    lpx = (lp.x-lcx) / l_width
+    lpy = (lp.y-lcy) / l_width
+
+    # right
+    ri, ro = EYE_CORNERS_R
+    rx0, ry0 = F[ri].x, F[ri].y
+    rx1, ry1 = F[ro].x, F[ro].y
+    rp = F[PUPILS[1]]
+
+    r_width = np.hypot(rx1-rx0, ry1-ry0) + 1e-6
+    rcx, rcy = (rx0+rx1)/2, (ry0+ry1)/2 # find right eye centre
+    rpx = (rp.x-rcx) / r_width
+    rpy = (rp.y-rcy) / r_width
+
+    return np.array([lpx,lpy,rpx,rpy], dtype=np.float64)
 
 
 def view_eye_position() -> NDArray | None:
-    global OPTIONS, pupil_bounds, processing
+    """
+    Detects eye features using MediaPipe face landmarks.
+
+    returns:
+        median of features array
+    """
+    global OPTIONS, processing
     processing = True
+
+    features = []
 
     # load pre-trained face landmarker model from mediapipe
     with v.FaceLandmarker.create_from_options(OPTIONS) as landmarker:
         # get pictures from webcam
         video = cv2.VideoCapture(VIDEO_FEED)
         start_time = datetime.now()
-
-        total = np.array([[0.0,0.0], [0.0,0.0]])
 
         while True:
             ret, frame = video.read()
@@ -76,7 +114,7 @@ def view_eye_position() -> NDArray | None:
             # calculate time in ms
             timedelta = datetime.now()-start_time
             timestamp_ms = int(timedelta.total_seconds()*1000)
-            if timestamp_ms >= 200:
+            if timestamp_ms >= 300:
                 break
 
             # detect face landmarks
@@ -85,31 +123,39 @@ def view_eye_position() -> NDArray | None:
 
             if R and R.face_landmarks:
                 for face_landmarks in R.face_landmarks:
-                    r = get_norm_pupil_position(face_landmarks)
-                    if r is None:
-                        raise ValueError
-                    total += r # implicit element-wise addition
+                    features.append(get_pupil_features(face_landmarks))
         
         video.release()
-        pupil_bounds = np.clip(total/len(total), 0.0, 1.0)
-        processing = False
+
+    processing = False
+    if features:
+        return np.median(features, axis=0) # mean tends to dampen extremes, median better here?
+    return None
 
 
-def calibrate(dots) -> None:
-    global processing, pupil_bounds
-    curr_dot = -1
-    mean_pupil_positions = []
+def calibrate(dots) -> tuple[NDArray, NDArray]:
+    """
+    Manages calibration procedure.
+    
+    args:
+        dots (array):   list of calibration point coordinates
+    
+    returns:
+        X:              features
+        Y:              corresponding point coordinates
+    """
+    curr_dot = 0
+    X, Y = [], []
 
     # plot calibration rig
-    while True:
+    while curr_dot < len(dots):
         # make fullscreen grey background
         canvas = np.full((H,W,3), (128,128,128), np.uint8)
 
         # draw on dots!
-        if curr_dot > -1:
-            for dot in dots:
-                cv2.circle(canvas, dot, 12, (50, 50, 50), -1)
-            cv2.circle(canvas, dots[curr_dot], 16, (0,0,255), -1)
+        for dot in dots:
+            cv2.circle(canvas, dot, 12, (50, 50, 50), -1)
+        cv2.circle(canvas, dots[curr_dot], 16, (0,0,255), -1)
 
         cv2.imshow("Calibration", canvas)
 
@@ -118,24 +164,65 @@ def calibrate(dots) -> None:
         if k & 0xFF in (ord('q'), 27): # escape or q to quit prematurely 
             break
         elif k == 32 and not processing: # space bar to progress calibration pt
-            if curr_dot < 8:
-                try:
-                    threading.Thread(target=view_eye_position).start()
-                except Exception as e:
-                    print(e)
+            feat = view_eye_position()
+            if feat is not None:
+                X.append(feat)
+                Y.append(dots[curr_dot])
                 curr_dot += 1
-            else:
-                mean_pupil_positions.append(pupil_bounds)
-                print(mean_pupil_positions)
-        elif processing:
-            if pupil_bounds is not None:
-                mean_pupil_positions.append(pupil_bounds)
-                pupil_bounds = None
 
     cv2.destroyAllWindows()
+    return np.array(X), np.array(Y)
 
 
-def start():
+def train_models(X, Y) -> tuple:
+    """
+    Fits a bilinear regression model to calibration data, using feature scaling
+    to improve fit.
+
+    args:
+        X:      features
+        Y:      calibration point screen coordinates
+    
+    returns:
+        models: linear regression models for x and y
+    """
+    model_x = Pipeline([
+        ("scaler", StandardScaler()),
+        ("lin-reg", LinearRegression())
+    ])
+    model_y = Pipeline([
+        ("scaler", StandardScaler()),
+        ("lin-reg", LinearRegression())
+    ])
+    model_x.fit(X, Y[:,0])
+    model_y.fit(X, Y[:,1])
+    return model_x, model_y
+
+
+def predict_gaze(models, feats) -> tuple[int, int]:
+    """
+    Predicts a screen coordinate relative to the pupil position.
+
+    args:
+        models: bilinear regression model
+        feats:  pupil features
+    
+    returns:
+        x, y:   screen coordinates
+    """
+    model_x, model_y = models
+    x = model_x.predict([feats])[0]
+    y = model_y.predict([feats])[0]
+    return int(x), int(y)
+
+
+def start() -> NDArray:
+    """
+    Initialises calibration procedure.
+
+    returns:
+        dot_positions:  calibration point screen coordinates
+    """
     # compute dot positions based on screen dimensions
     w, h = 0.95*W, 0.95*H
     dot_positions = []
@@ -143,26 +230,58 @@ def start():
         for j in range(3):
             x_pos, y_pos = int(j*w/2 + w*0.025), int(i*h/2 + h*0.025)
             dot_positions.append((x_pos, y_pos))
-    calibrate(dot_positions)
+    return np.array(dot_positions)
 
 
-def main():
-    start()
-    # add main program code here
+def main() -> None:
+    dot_pos = start()
+    X, Y = calibrate(dot_pos)
+    models = train_models(X,Y)
+
+    # load pre-trained face landmarker model from mediapipe
+    with v.FaceLandmarker.create_from_options(OPTIONS) as landmarker:
+        # get pictures from webcam
+        video = cv2.VideoCapture(VIDEO_FEED)
+        start_time = datetime.now()
+
+        while True:
+            ret, frame = video.read()
+            if not ret:
+                break
+
+            # calculate time in ms
+            timedelta = datetime.now()-start_time
+            timestamp_ms = int(timedelta.total_seconds()*1000)
+
+            # detect face landmarks
+            im = mp.Image(image_format=mp.ImageFormat.SRGB, data=frame)
+            landmarker.detect_async(im, timestamp_ms)
+
+            # draw calculated eye position on screen
+            canvas = np.full((H,W,3), (128,128,128), np.uint8)
+
+            if R and R.face_landmarks:
+                for face_landmarks in R.face_landmarks:
+                    feats = get_pupil_features(face_landmarks)
+                    # calculate grain
+                    gaze = predict_gaze(models, feats)
+                    # non-linear grain (amplify large movements and damp small ones)
+                    delta = gaze - CENTRE
+                    gaze = CENTRE + np.sign(delta) * np.abs(delta)**1.1
+                    # circle opacity based on confidence
+                    alpha = np.clip(1 - np.std(feats)*5, 0.2, 1.0)
+                    layer = canvas.copy()
+                    cv2.circle(layer, pt(gaze), 24, (0,0,0), -1)
+                    canvas = cv2.addWeighted(canvas,alpha,layer,1-alpha,0) # type: ignore
+            
+            cv2.imshow("Real-Time Gaze", canvas)
+
+            if cv2.waitKey(1) & 0xFF in (ord('q'), 27): # esc or q to quit
+                break
+        
+        video.release()
+        cv2.destroyAllWindows()
 
 
 if __name__ == "__main__":
     main()
-
-
-"""
-[array([[1.        , 0.69877229],
-       [0.8240079 , 0.69121015]]), array([[1.        , 0.9288538 ],
-       [0.93730834, 0.91836238]]), array([[1.        , 1.        ],
-       [0.76083955, 0.99219775]]), array([[1.        , 0.9780449 ],
-       [1.        , 0.95482915]]), array([[1.        , 0.97544361],
-       [0.93642384, 0.93766639]]), array([[1.        , 0.99435151],
-       [0.73315262, 0.97166966]]), array([[1.        , 0.93394394],
-       [0.97971994, 0.91240782]]), array([[1.        , 0.91029546],
-       [0.90037219, 0.89745984]])]
-"""
