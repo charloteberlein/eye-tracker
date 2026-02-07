@@ -1,8 +1,11 @@
 # Eye tracking project
 
+## Usage and requirements
+- MediaPipe file: `face_landmarker.task` – a pre-trained face landmarker model.
+
 ## Problem statement
 
-## System Overview
+## System overview
 
 ## Calibration instructions
 
