@@ -66,26 +66,38 @@ def get_pupil_features(F) -> NDArray[np.float64]:
         rpx, rpy:   right pupil position relative to right eye centre
     """
     # left
+    lp = F[PUPILS[0]]
+
     li, lo = EYE_CORNERS_L # inner & outer
     lx0, ly0 = F[li].x, F[li].y
     lx1, ly1 = F[lo].x, F[lo].y
-    lp = F[PUPILS[0]]
     l_width = np.hypot(lx1-lx0, ly1-ly0) + 1e-6
+
+    lu, ld = EYE_APEX_L
+    lx2, ly2 = F[lu].x, F[lu].y
+    lx3, ly3 = F[ld].x, F[ld].y
+    l_height = np.hypot(lx3-lx2, ly3-ly2) + 1e-6
 
     lcx, lcy = (lx0+lx1)/2, (ly0+ly1)/2 # find left eye centre
     lpx = (lp.x-lcx) / l_width
-    lpy = (lp.y-lcy) / l_width
+    lpy = (lp.y-lcy) / l_height
 
     # right
+    rp = F[PUPILS[1]]
+
     ri, ro = EYE_CORNERS_R
     rx0, ry0 = F[ri].x, F[ri].y
     rx1, ry1 = F[ro].x, F[ro].y
-    rp = F[PUPILS[1]]
-
     r_width = np.hypot(rx1-rx0, ry1-ry0) + 1e-6
+
+    ru, rd = EYE_APEX_R
+    rx2, ry2 = F[ru].x, F[ru].y
+    rx3, ry3 = F[rd].x, F[rd].y
+    r_height = np.hypot(rx3-rx2, ry3-ry2) + 1e-6
+
     rcx, rcy = (rx0+rx1)/2, (ry0+ry1)/2 # find right eye centre
     rpx = (rp.x-rcx) / r_width
-    rpy = (rp.y-rcy) / r_width
+    rpy = (rp.y-rcy) / r_height
 
     return np.array([lpx,lpy,rpx,rpy], dtype=np.float64)
 
