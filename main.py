@@ -19,7 +19,7 @@ import matplotlib.pyplot as plt
 VIDEO_FEED = 1 # input camera
 W, H = 3024, 1964 # screen dimensions
 CENTRE = np.array([W//2, H//2]) # screeen centre coordinates
-SMOOTHING = (0.6,0.8) # smoothing strength coefficient
+SMOOTHING = 0.3 # smoothing strength coefficient
 # default landmark indices within mesh
 LEFT_EYE_LANDMARKS = (463, 398, 384, 385, 386, 387, 388, 466, 263, 249, 390,
                       373, 374, 380, 381, 382, 362)
@@ -29,7 +29,7 @@ LEFT_IRIS_LANDMARKS = (473, 474, 475, 477, 476)
 RIGHT_IRIS_LANDMARKS = (468, 469, 470, 471, 472)
 # specific landmarks to use in this project
 EYE_CORNERS_L, EYE_CORNERS_R = (463, 263), (133, 33) # (inner, outer)
-EYE_APEX_L, EYE_APEX_R, PUPILS = (386, 145), (159, 374), (473, 468)
+EYE_APEX_L, EYE_APEX_R, PUPILS = (386, 374), (159, 145), (473, 468)
 LANDMARKS = EYE_CORNERS_L + EYE_CORNERS_R + EYE_APEX_L + EYE_APEX_R + PUPILS
 
 # global variables
@@ -236,8 +236,8 @@ def predict_gaze(models, feats, prev) -> tuple[int, int]:
     y = model_y.predict([feats])[0]
 
     # smoothing
-    x = SMOOTHING[0]*x + (1-SMOOTHING[0])*prev[0]
-    y = SMOOTHING[1]*y + (1-SMOOTHING[1])*prev[1]
+    x = SMOOTHING*x + (1-SMOOTHING)*prev[0]
+    y = SMOOTHING*y + (1-SMOOTHING)*prev[1]
 
     return int(np.clip(x, 0.05*W, 0.95*W)), int(np.clip(y, 0.05*H, 0.95*H))
 
@@ -347,8 +347,8 @@ def main() -> None:
             if R and R.face_landmarks:
                 for face_landmarks in R.face_landmarks:
                     # draw onto opencv window
-                    for (pt0, pt1) in ([(386, 374), (159, 145),
-                                        (463, 263), (133, 33)]):
+                    for (pt0, pt1) in ([EYE_APEX_L, EYE_APEX_R,
+                                        EYE_CORNERS_L, EYE_CORNERS_R]):
                         cv2.line(frame, pt(face_landmarks[pt0], im),
                                 pt(face_landmarks[pt1], im), (255,0,0), 1)
                     for i in LANDMARKS:
