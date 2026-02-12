@@ -1,14 +1,20 @@
 # Real-Time Eye Tracking Project
 February 2026
 
+
+## Problem statement
+The aim of this project is to create a proof-of-concept for a real-time, calibration-based eye tracking system.
+
+
 ## Usage and requirements
 ### Setting up environment
 - Make a virtual environment and run `pip install -r requirements.txt`
 - Download the pre-trained Google MediaPipe face landmarker [model file](https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/latest/face_landmarker.task) and place it in `resources/`
 - Run `main.py`
 
+
 ### Calibration
-If everything is working correctly, the first thing you will see is the calibration window with a 9x9 grid. You can adjust the size of this window in the configuration at the top of `main.py`. Alternatively, you may want to open the window in fullscreen mode. Your webcam will also be activated. Make sure you have picked the correct source, which you can also adjust in the configuration.
+If everything is working correctly, the first thing you will see is the calibration window with a 3x3 grid. You can adjust the size of this window in the configuration at the top of `main.py`. Alternatively, you may want to open the window in fullscreen mode. Your webcam will also be activated. Make sure you have picked the correct source, which you can also adjust in the configuration.
 
 A red dot will be displayed to indicate which of the 9 dots to look at. Make sure to keep your head as still as possible; only move your eyes. The calibration sample will only be taken when you press the space bar on each highlighted dot. When you press the space bar the final time, the window should close and be replaced by a fullscreen window of the main eye tracking system.
 
@@ -16,15 +22,22 @@ A red dot will be displayed to indicate which of the 9 dots to look at. Make sur
 As before, keep your head as still as possible and aim to look within the calibration area. You should see a blurry cursor move around the window to match your eye movement that changes in size and colour to reflect the speed of your movement.
 
 
-## Problem statement
-The aim of this project is to create a proof-of-concept for a real-time, calibration-based eye tracking system.
-
-## System overview
-
 ## Results and limitations
-From start to finish, this project took about a week to complete.
+From start to finish, this project took about a week to complete. Therefore, I took a relatively simple approach to the problem by disregarding head movement and using linear regression. However, this means that the system is also incredibly sensitive and only gives accurate results when there is absolutely no head position change between calibration and use.
+
+Initially, I wanted to use local grid interpolation, but this was far too sensitive and inaccurate, even with minimal head movement. So, I opted to use a regression model instead, which would offer a more robust, machine-learning-based solution.
+
+I originally considered multiple different regression algorithms (including quartic and quintic; shown centre and right), although linear (left) ended up being most suitable – any higher order polynomials would cause the model to overfit on the calibration data. The images below show the results of arbitrary eye movement during testing, where the quartic and quintic regression show obvious tendency towards the 9 calibration grid points.
+<p align="left">
+  <img src=https://github.com/charloteberlein/eye-tracker/blob/main/images/linear.png height=200px/>
+  <img src=https://github.com/charloteberlein/eye-tracker/blob/main/images/quartic.png height=200px/>
+  <img src=https://github.com/charloteberlein/eye-tracker/blob/main/images/quintic.png height=200px/>
+</p>
+
 
 ## Future work
+In future, I would like to expand on this project by incorporating head position into the model calibration process. This would likely require a different approach to the system design, including mapping from real-life three-dimensional coordinate systems down to two-dimensional screen coordinates.
 
-### References
+
+## Further resources
 - [MediaPipe example Jupyter Notebook](https://colab.research.google.com/github/googlesamples/mediapipe/blob/main/examples/face_detector/python/face_detector.ipynb#scrollTo=a49D7h4TVmru)
