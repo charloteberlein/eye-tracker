@@ -4,19 +4,22 @@ import cv2
 import mediapipe as mp
 from mediapipe.tasks import python as mpp
 from mediapipe.tasks.python import vision as v
-# calculation modules
+# computation modules
 from datetime import datetime
 import numpy as np
 from numpy.typing import NDArray
-from sklearn.pipeline import Pipeline
+from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
-from sklearn.linear_model import LinearRegression
+from sklearn.linear_model import Ridge
+# plotting modules
+import matplotlib.pyplot as plt
 
 
 # global constants
 VIDEO_FEED = 1 # input camera
 W, H = 3024, 1964 # screen dimensions
-CENTRE = np.array([W//2, H//2])
+CENTRE = np.array([W//2, H//2]) # screeen centre coordinates
+SMOOTHING = (0.6,0.8) # smoothing strength coefficient
 # default landmark indices within mesh
 LEFT_EYE_LANDMARKS = (463, 398, 384, 385, 386, 387, 388, 466, 263, 249, 390,
                       373, 374, 380, 381, 382, 362)
@@ -24,7 +27,7 @@ RIGHT_EYE_LANDMARKS = (33, 246, 161, 160, 159, 158, 157, 173, 133, 155, 154,
                        153, 145, 144, 163, 7)
 LEFT_IRIS_LANDMARKS = (473, 474, 475, 477, 476)
 RIGHT_IRIS_LANDMARKS = (468, 469, 470, 471, 472)
-# specific landmarks to use
+# specific landmarks to use in this project
 EYE_CORNERS_L, EYE_CORNERS_R = (463, 263), (133, 33) # (inner, outer)
 EYE_APEX_L, EYE_APEX_R, PUPILS = (386, 145), (159, 374), (473, 468)
 LANDMARKS = EYE_CORNERS_L + EYE_CORNERS_R + EYE_APEX_L + EYE_APEX_R + PUPILS
@@ -129,7 +132,7 @@ def view_eye_position() -> NDArray | None:
 
     processing = False
     if features:
-        return np.median(features, axis=0) # mean tends to dampen extremes, median better here?
+        return np.mean(features, axis=0)
     return None
 
 
@@ -186,34 +189,43 @@ def train_models(X, Y) -> tuple:
     returns:
         models: linear regression models for x and y
     """
-    model_x = Pipeline([
-        ("scaler", StandardScaler()),
-        ("lin-reg", LinearRegression())
-    ])
-    model_y = Pipeline([
-        ("scaler", StandardScaler()),
-        ("lin-reg", LinearRegression())
-    ])
+    model_x = make_pipeline(
+        StandardScaler(),
+        Ridge()
+    )
+    model_y = make_pipeline(
+        StandardScaler(),
+        Ridge()
+    )
+
     model_x.fit(X, Y[:,0])
     model_y.fit(X, Y[:,1])
+
     return model_x, model_y
 
 
-def predict_gaze(models, feats) -> tuple[int, int]:
+def predict_gaze(models, feats, prev) -> tuple[int, int]:
     """
     Predicts a screen coordinate relative to the pupil position.
 
     args:
-        models: bilinear regression model
+        models: bilinear regression model?
         feats:  pupil features
+        prev:   previous gaze coordinates
     
     returns:
         x, y:   screen coordinates
     """
     model_x, model_y = models
+
     x = model_x.predict([feats])[0]
     y = model_y.predict([feats])[0]
-    return int(x), int(y)
+
+    # smoothing
+    x = SMOOTHING[0]*x + (1-SMOOTHING[0])*prev[0]
+    y = SMOOTHING[1]*y + (1-SMOOTHING[1])*prev[1]
+
+    return int(np.clip(x, 0.05*W, 0.95*W)), int(np.clip(y, 0.05*H, 0.95*H))
 
 
 def start() -> NDArray:
@@ -237,6 +249,7 @@ def main() -> None:
     dot_pos = start()
     X, Y = calibrate(dot_pos)
     models = train_models(X,Y)
+    prev_coords = CENTRE
 
     # load pre-trained face landmarker model from mediapipe
     with v.FaceLandmarker.create_from_options(OPTIONS) as landmarker:
@@ -259,20 +272,17 @@ def main() -> None:
 
             # draw calculated eye position on screen
             canvas = np.full((H,W,3), (128,128,128), np.uint8)
-
+ 
             if R and R.face_landmarks:
                 for face_landmarks in R.face_landmarks:
                     feats = get_pupil_features(face_landmarks)
-                    # calculate grain
-                    gaze = predict_gaze(models, feats)
-                    # non-linear grain (amplify large movements and damp small ones)
-                    delta = gaze - CENTRE
-                    gaze = CENTRE + np.sign(delta) * np.abs(delta)**1.1
-                    # circle opacity based on confidence
-                    alpha = np.clip(1 - np.std(feats)*5, 0.2, 1.0)
-                    layer = canvas.copy()
-                    cv2.circle(layer, pt(gaze), 24, (0,0,0), -1)
-                    canvas = cv2.addWeighted(canvas,alpha,layer,1-alpha,0) # type: ignore
+                    gaze = predict_gaze(models, feats, prev_coords)
+                    # plot velocity (to quantify confidence for later)
+                    velocity = np.gradient(np.column_stack((gaze, prev_coords)))
+                    cv2.putText(canvas, str(abs(np.hypot(velocity[1][0], velocity[1][1]))), (100,100), 0, 1, 0)
+                    cv2.line(canvas, gaze, tuple(prev_coords), (255,0,0), 12)
+
+                    prev_coords = gaze
             
             cv2.imshow("Real-Time Gaze", canvas)
 
