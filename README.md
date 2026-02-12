@@ -29,9 +29,9 @@ Initially, I wanted to use local grid interpolation, but this was far too sensit
 
 I originally considered multiple different regression algorithms (including quartic and quintic; shown centre and right), although linear (left) ended up being most suitable – any higher order polynomials would cause the model to overfit on the calibration data. The images below show the results of arbitrary eye movement during testing, where the quartic and quintic regression show obvious tendency towards the 9 calibration grid points.
 <p align="left">
-  <img src=https://github.com/charloteberlein/eye-tracker/blob/main/images/linear.png height=200px/>
-  <img src=https://github.com/charloteberlein/eye-tracker/blob/main/images/quartic.png height=200px/>
-  <img src=https://github.com/charloteberlein/eye-tracker/blob/main/images/quintic.png height=200px/>
+  <img src=https://github.com/charloteberlein/eye-tracker/blob/main/images/linear.png height=100px/>
+  <img src=https://github.com/charloteberlein/eye-tracker/blob/main/images/quartic.png height=100px/>
+  <img src=https://github.com/charloteberlein/eye-tracker/blob/main/images/quintic.png height=100px/>
 </p>
 
 
