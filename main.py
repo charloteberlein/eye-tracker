@@ -73,7 +73,7 @@ def get_pupil_features(F) -> NDArray[np.float64]:
     lx1, ly1 = F[lo].x, F[lo].y
     l_width = np.hypot(lx1-lx0, ly1-ly0) + 1e-6
 
-    lu, ld = EYE_APEX_L
+    lu, ld = EYE_APEX_L # upper & lower
     lx2, ly2 = F[lu].x, F[lu].y
     lx3, ly3 = F[ld].x, F[ld].y
     l_height = np.hypot(lx3-lx2, ly3-ly2) + 1e-6
@@ -85,12 +85,12 @@ def get_pupil_features(F) -> NDArray[np.float64]:
     # right
     rp = F[PUPILS[1]]
 
-    ri, ro = EYE_CORNERS_R
+    ri, ro = EYE_CORNERS_R # inner & outer
     rx0, ry0 = F[ri].x, F[ri].y
     rx1, ry1 = F[ro].x, F[ro].y
     r_width = np.hypot(rx1-rx0, ry1-ry0) + 1e-6
 
-    ru, rd = EYE_APEX_R
+    ru, rd = EYE_APEX_R # upper & lower
     rx2, ry2 = F[ru].x, F[ru].y
     rx3, ry3 = F[rd].x, F[rd].y
     r_height = np.hypot(rx3-rx2, ry3-ry2) + 1e-6
@@ -342,13 +342,14 @@ def main() -> None:
                 for face_landmarks in R.face_landmarks:
                     feats = get_pupil_features(face_landmarks)
                     gaze = predict_gaze(models, feats, prev_coords)
-                    # plot velocity (clipped to [200, 1200])
-                    V = 2*np.mean(np.clip(np.gradient(np.column_stack(
-                        (gaze, prev_coords))), 100, 600))
-                    c0, c1, c2, _ = cmap(np.clip((V-200)/500, 0, 0.7))
+                    # plot velocity
+                    V = np.clip(np.abs(np.diff(np.column_stack((gaze,
+                                prev_coords)))).mean(), 200, 800)
+                    c0, c1, c2, _ = cmap(np.clip((V-200)/600, 0, 0.7))
 
                     ax_im.set_extent((gaze[0]-V, gaze[0]+V,
                                       H-gaze[1]+V, H-gaze[1]-V)) # type: ignore
+
                     new_im = gradient_im.copy()
                     new_im[:,:,0], new_im[:,:,1], new_im[:,:,2] = c0, c1, c2
                     ax_im.set_data(new_im)
