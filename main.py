@@ -38,6 +38,9 @@ processing = False # flag for calibration async
 video = None # prevent cv2 memory leak when closing mpl window
 
 # helper and callback functions
+def pt(landmark, im) -> tuple[int, int]:
+    return (int(landmark.x*im.width), int(landmark.y*im.height))
+
 def callback_func(out, im, time) -> None: # required for mediapipe landmarker
     global R
     R = out
@@ -332,8 +335,6 @@ def main() -> None:
             if not ret:
                 break
 
-            cv2.imshow("Webcam Feed", frame)
-
             # calculate time in ms
             timedelta = datetime.now()-start_time
             timestamp_ms = int(timedelta.total_seconds()*1000)
@@ -345,6 +346,15 @@ def main() -> None:
             # draw calculated eye position on screen
             if R and R.face_landmarks:
                 for face_landmarks in R.face_landmarks:
+                    # draw onto opencv window
+                    for (pt0, pt1) in ([(386, 374), (159, 145),
+                                        (463, 263), (133, 33)]):
+                        cv2.line(frame, pt(face_landmarks[pt0], im),
+                                pt(face_landmarks[pt1], im), (255,0,0), 1)
+                    for i in LANDMARKS:
+                        c = (0,255,0) if i not in PUPILS else (0,0,255)
+                        cv2.circle(frame, pt(face_landmarks[i], im), 2, c, -1)
+
                     feats = get_pupil_features(face_landmarks)
                     gaze = predict_gaze(models, feats, prev_coords)
                     # plot velocity
@@ -364,8 +374,10 @@ def main() -> None:
 
                     prev_coords = gaze
             
+            cv2.imshow("Webcam Feed", frame)
+            
             key = cv2.waitKey(1)
-            if key & 0xFF == 27:
+            if key & 0xFF in (27, ord("q")):
                 break
         
         # this is bypassed if mpl figure (window) closed
