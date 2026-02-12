@@ -322,12 +322,17 @@ def main() -> None:
     with v.FaceLandmarker.create_from_options(OPTIONS) as landmarker:
         # get pictures from webcam
         video = cv2.VideoCapture(VIDEO_FEED)
+
+        cv2.namedWindow("Webcam Feed", cv2.WINDOW_NORMAL)
+
         start_time = datetime.now()
 
         while True:
             ret, frame = video.read()
             if not ret:
                 break
+
+            cv2.imshow("Webcam Feed", frame)
 
             # calculate time in ms
             timedelta = datetime.now()-start_time
@@ -358,10 +363,15 @@ def main() -> None:
                     fig.canvas.flush_events()
 
                     prev_coords = gaze
+            
+            key = cv2.waitKey(1)
+            if key & 0xFF == 27:
+                break
         
         # this is bypassed if mpl figure (window) closed
         video.release()
         cv2.destroyAllWindows()
+        plt.close()
 
 
 if __name__ == "__main__":
