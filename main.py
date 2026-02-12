@@ -34,14 +34,13 @@ LANDMARKS = EYE_CORNERS_L + EYE_CORNERS_R + EYE_APEX_L + EYE_APEX_R + PUPILS
 
 # global variables
 R = None # current face result
-processing = False
+processing = False # flag for calibration async
+video = None # prevent cv2 memory leak when closing mpl window
 
 # helper and callback functions
 def callback_func(out, im, time) -> None: # required for mediapipe landmarker
     global R
     R = out
-def pt(p): # coordinate arrays -> tuples
-    return int(p[0]), int(p[1])
 
 # mediapipe facial landmarker options & filepath
 OPTIONS = v.FaceLandmarkerOptions(
@@ -245,11 +244,67 @@ def start() -> NDArray:
     return np.array(dot_positions)
 
 
+def make_confidence_gradient(r=100, c=(0,0,0), alpha=2.0):
+    # set up coordinate grid, mask, and gradient for cursor blob
+    y, x = np.ogrid[-r:r,-r:r]
+    max_radius = np.clip(np.hypot(x,y)/r, 0, 1)
+    alpha = (1-max_radius)**alpha
+
+    # make img
+    img = np.zeros((r*2, r*2, 4))
+    img[:,:,0], img[:,:,1], img[:,:,2], img[:,:,3] = c[0], c[1], c[2], alpha
+
+    return img
+
+
+def on_fig_exit(event):
+    global video # ensure proper memory handling
+    if (event.name == "close_event" or (event.name == "key_press_event" and
+                                        event.key == "escape")):
+        if (event.name == "key_press_event" and event.key == "escape"):
+            plt.close(event.canvas.figure)
+        if video is not None: video.release()
+        cv2.destroyAllWindows()
+        quit()
+
+
 def main() -> None:
+    global video
     dot_pos = start()
     X, Y = calibrate(dot_pos)
     models = train_models(X,Y)
     prev_coords = CENTRE
+
+    plt.ion() # turn on interactive mode for Esc event connection
+
+    # set up plot structure
+    plt.rcParams["font.family"] = "Times New Roman"
+    fig, ax = plt.subplots()
+    ax.set_title("Real-Time Eye Tracking", fontweight="bold")
+    plt.text(0.99, 0.01,"© Charlot Eberlein 2026",c=(0.5,0.5,0.5),fontsize=10,
+         ha='right',va='bottom',transform=plt.gca().transAxes)
+    plt.gca().set_facecolor('#f0f0f0')
+    ax.set_xlim(0,W)
+    ax.set_ylim(0,H)
+    ax.get_xaxis().set_visible(False)
+    ax.get_yaxis().set_visible(False)
+
+    # get colourmap
+    cmap = plt.get_cmap("Blues_r")
+
+    # init gradient image
+    gradient_im = make_confidence_gradient(c=cmap(0.0))
+    ax_im = ax.imshow(gradient_im, extent=(0,0,0,0))
+    fig.tight_layout()
+
+    manager = plt.get_current_fig_manager()
+    if manager is not None: manager.full_screen_toggle()
+
+    fig.canvas.draw()
+    fig.canvas.flush_events()
+
+    fig.canvas.mpl_connect("close_event", on_fig_exit)
+    fig.canvas.mpl_connect("key_press_event", on_fig_exit)
 
     # load pre-trained face landmarker model from mediapipe
     with v.FaceLandmarker.create_from_options(OPTIONS) as landmarker:
@@ -271,24 +326,27 @@ def main() -> None:
             landmarker.detect_async(im, timestamp_ms)
 
             # draw calculated eye position on screen
-            canvas = np.full((H,W,3), (128,128,128), np.uint8)
- 
             if R and R.face_landmarks:
                 for face_landmarks in R.face_landmarks:
                     feats = get_pupil_features(face_landmarks)
                     gaze = predict_gaze(models, feats, prev_coords)
-                    # plot velocity (to quantify confidence for later)
-                    velocity = np.gradient(np.column_stack((gaze, prev_coords)))
-                    cv2.putText(canvas, str(abs(np.hypot(velocity[1][0], velocity[1][1]))), (100,100), 0, 1, 0)
-                    cv2.line(canvas, gaze, tuple(prev_coords), (255,0,0), 12)
+                    # plot velocity (clipped to [200, 1200])
+                    V = 2*np.mean(np.clip(np.gradient(np.column_stack(
+                        (gaze, prev_coords))), 100, 600))
+                    c0, c1, c2, _ = cmap(np.clip((V-200)/500, 0, 0.7))
+
+                    ax_im.set_extent((gaze[0]-V, gaze[0]+V,
+                                      H-gaze[1]+V, H-gaze[1]-V)) # type: ignore
+                    new_im = gradient_im.copy()
+                    new_im[:,:,0], new_im[:,:,1], new_im[:,:,2] = c0, c1, c2
+                    ax_im.set_data(new_im)
+
+                    fig.canvas.draw_idle()
+                    fig.canvas.flush_events()
 
                     prev_coords = gaze
-            
-            cv2.imshow("Real-Time Gaze", canvas)
-
-            if cv2.waitKey(1) & 0xFF in (ord('q'), 27): # esc or q to quit
-                break
         
+        # this is bypassed if mpl figure (window) closed
         video.release()
         cv2.destroyAllWindows()
 
