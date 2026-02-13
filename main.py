@@ -363,7 +363,7 @@ def main() -> None:
                     c0, c1, c2, _ = cmap(np.clip((V-200)/600, 0, 0.7))
 
                     ax_im.set_extent((gaze[0]-V, gaze[0]+V,
-                                      H-gaze[1]+V, H-gaze[1]-V)) # type: ignore
+                                      H-gaze[1]+V, H-gaze[1]-V))
 
                     new_im = gradient_im.copy()
                     new_im[:,:,0], new_im[:,:,1], new_im[:,:,2] = c0, c1, c2
